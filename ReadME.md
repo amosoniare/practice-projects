@@ -1,70 +1,282 @@
-**ESP32 Web Server and Bluetooth LED Control**
+# Arduino IoT Cloud with ESP32: Relay, LED, Motor, and Servo Control
 
-This project empowers you to control an LED connected to an ESP32 board using two convenient methods:
+This project integrates an ESP32 with the Arduino IoT Cloud to control a relay, LED, motor, and servo. It also includes an LCD for local status display. 
 
-1. **Web Interface:** Access a user-friendly web page served by the ESP32 through a web browser on any Wi-Fi-connected device (smartphone, tablet, computer).
-2. **Bluetooth Serial Communication:** Send commands via Bluetooth from your smartphone or other Bluetooth-enabled device for effortless LED control.
+## Components
 
-**Project Goals:**
+- ESP32
+- 2-Channel Relay Module
+- Servo Motor
+- Built-in LED
+- Motor
+- I2C LCD Display
 
-* **Hands-on Learning:** Gain practical experience with ESP32 development, Wi-Fi connectivity, Bluetooth communication, and web server creation.
-* **Interactive LED Control:** Experiment with controlling an LED remotely using web and Bluetooth interfaces.
+## Features
 
-**Hardware Requirements:**
+- Wi-Fi connection to Arduino IoT Cloud
+- Remote control via IoT Cloud dashboard
+- Real-time status display on LCD
+- Servo sweeping functionality
 
-* ESP32 development board (any model with Wi-Fi and Bluetooth capabilities)
-* LED (choose a suitable LED based on its forward voltage and current requirements)
-* Resistor (value depends on LED specifications; typically 220 ohms or higher)
-* Connecting wires
+## Setup and Implementation
 
-**Software Requirements:**
+### Step 1: Create an Arduino IoT Cloud Thing
 
-* Arduino IDE ([https://www.arduino.cc/](https://www.arduino.cc/))
+1. Go to the [Arduino IoT Cloud](https://create.arduino.cc/iot) and create a new Thing.
+2. Define the following variables:
+   - `lED_In_Built` (CloudLight, READ/WRITE)
+   - `relay1` (CloudSwitch, READ/WRITE)
+   - `servo` (int, READ/WRITE)
+   - `motor` (bool, READ/WRITE)
 
-**Connections:**
+### Step 2: Connect the Components
 
-1. Connect the LED's positive leg to ESP32 pin `13` through a suitable resistor (e.g., 220 ohms for a typical LED).
-2. Connect the LED's negative leg to ground (GND).
+1. **Relay Module**:
+    - IN1 to GPIO 5 (relay1)
+    - IN2 to GPIO 4 (relay2)
+2. **Built-in LED**:
+    - Already connected to GPIO 2 (ledInBuilt)
+3. **Servo Motor**:
+    - Signal pin to GPIO 18 (servoPin)
+4. **I2C LCD Display**:
+    - Connect SCL and SDA to appropriate ESP32 pins
 
-**Setup Instructions:**
+### Step 3: Install Libraries
 
-1. **Install Libraries:**
-   - Open the Arduino IDE. Go to **Sketch > Include Library > Manage Libraries**.
-   - Search for and install the following libraries:
-     - `WiFi`
-     - `BluetoothSerial`
+Ensure you have the following libraries installed in your Arduino IDE:
+- `WiFi`
+- `ESP32Servo`
+- `hd44780`
+- `ArduinoIoTCloud`
+- `Arduino_ConnectionHandler`
 
-2. **Update Wi-Fi Credentials:**
-   - In the code (Section: Wi-Fi Credentials), replace `your_wifi_ssid` with the name of your Wi-Fi network and `your_wifi_password` with its password. Ensure these values are accurate for successful network connection.
+### Step 4: Code
 
-3. **Upload Code:**
-   - Connect the ESP32 to your computer using a USB cable.
-   - Select the appropriate ESP32 board and serial port from the Arduino IDE tools menu.
-   - Click the upload button to transfer the code to the ESP32.
+You can find the complete code [here](https://github.com/your-repo/arduino-iot-cloud-control).
 
-**Web Interface Usage:**
+#### Include Libraries and Define Pins
 
-1. **Connect to Wi-Fi:** Ensure your smartphone, tablet, or computer is connected to the same Wi-Fi network as the ESP32.
-2. **Open Web Browser:** Launch a web browser on your device.
-3. **Enter IP Address:** In the address bar, type the IP address assigned to the ESP32. You can find this by opening the serial monitor in the Arduino IDE after uploading the code (look for lines starting with "IP address:"). If you can't locate the IP this way, consider using a Wi-Fi network scanner app on your device to identify the ESP32's device name or IP.
-4. **Control LED:** The web page will display user-friendly buttons or links. Click the corresponding button or link to turn the LED on or off.
+Include necessary libraries and define pin connections:
+```cpp
+#include <WiFi.h>
+#include <ESP32Servo.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
+#include "thingProperties.h"
 
-**Bluetooth Serial Communication Usage:**
+// GPIO pins
+#define servoPin 18
+#define relay1Pin 5
+#define relay2Pin 4
+#define ledInBuilt 2
 
-1. **Pair Bluetooth Device:** Pair your smartphone or other Bluetooth-enabled device with the ESP32. The ESP32's Bluetooth name will be "ESP32_BT_Light" (you can customize this name in the code if desired).
-2. **Send Commands:** Use a Bluetooth terminal app on your device to send characters to the ESP32:
-   - Send `"1"` (without quotes) to turn the LED on.
-   - Send `"0"` (without quotes) to turn the LED off.
+Servo myservo;
+int servoPosition = 90; // default position
+bool sweeping = false;
+bool cloudConnected = false;
 
-**Explanation of the Code:**
+hd44780_I2Cexp lcd; // declare lcd object: auto locate & config expander chip
 
-* **Libraries:** `WiFi.h` enables Wi-Fi connectivity, and `BluetoothSerial.h` facilitates Bluetooth communication.
-* **Constants:**
-   - `your_wifi_ssid`: Replace with your Wi-Fi network name (SSID).
-   - `your_wifi_password`: Replace with your Wi-Fi network password.
-   - `led_pin`: Defines the pin connected to the LED (default: 13). This can be modified based on your hardware setup.
-* **Setup:**
-   - `Serial.begin(115200)`: Initializes serial communication for debugging output (optional).
-   - `SerialBT.begin("ESP32_BT_Light")`: Starts the Bluetooth module and sets its name. You can customize this name if preferred.
-   - `pinMode(led_pin, OUTPUT)`: Sets the LED pin as an output.
-   - `WiFi.begin(your_wifi_ssid, your_wifi_password)`: Connects the ESP32 to the Wi-Fi network using the provided credentials.
+// LCD geometry
+const int LCD_COLS = 16;
+const int LCD_ROWS = 4;
+
+// Replace with your network credentials
+const char* ssid     = "910";
+const char* password = "Bl3ss3d@20";
+```
+
+#### Setup Function
+
+The `setup()` function initializes the pins, serial communication, WiFi, and IoT Cloud connection:
+```cpp
+void setup() {
+  pinMode(relay1Pin, OUTPUT);
+  pinMode(relay2Pin, OUTPUT);
+  pinMode(ledInBuilt, OUTPUT);
+  
+  Serial.begin(115200);
+  myservo.attach(servoPin);  // attaches the servo on the servoPin to the servo object
+
+  lcd.begin(LCD_COLS, LCD_ROWS);
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting to WiFi");
+
+  // Connect to Wi-Fi network with SSID and password
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    lcd.print(".");
+  }
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Connected");
+  lcd.setCursor(0, 1);
+  lcd.print(WiFi.localIP());
+
+  // Cloud Part
+  lcd.setCursor(0, 2);
+  lcd.print("Connecting to Cloud");
+  // Initialize properties
+  initProperties();
+  // Connect to Arduino IoT Cloud
+  ArduinoCloud.begin(ArduinoIoTPreferredConnection);
+  setDebugMessageLevel(2);
+  ArduinoCloud.printDebugInfo();
+  cloudConnected = true;
+  
+  lcd.setCursor(0, 2);
+  lcd.print("Cloud Connected");
+  delay(1000);
+  lcd.clear();
+}
+```
+
+#### Loop Function
+
+The `loop()` function updates the Arduino Cloud and checks for changes:
+```cpp
+void loop() {
+  ArduinoCloud.update();
+
+  // Update LCD with current status
+  lcd.setCursor(0, 0);
+  lcd.print("Sol: ");
+  lcd.print(digitalRead(relay1Pin) ? "ON " : "OFF");
+  lcd.print(" Motor: ");
+  lcd.print(digitalRead(relay2Pin) ? "ON " : "OFF");
+  lcd.setCursor(0, 1);
+  lcd.print("LED: ");
+  lcd.print(digitalRead(ledInBuilt) ? "ON " : "OFF ");
+  lcd.print(" Cloud: ");
+  lcd.print(cloudConnected ? "ON " : "OFF");
+
+  if (sweeping) {
+    servoPosition += 1; // Incrementing by 1 for sweeping effect
+    if (servoPosition >= 180 || servoPosition <= 0) {
+      servoPosition = 90; // Reset to default position
+    }
+    myservo.write(servoPosition);
+    delay(15); // Adjust speed of sweeping
+  }
+}
+```
+
+#### Cloud Change Functions
+
+These functions handle changes in the cloud variables:
+```cpp
+void onRelay1Change() {
+  if (relay1) {
+    digitalWrite(relay1Pin, LOW);
+    Serial.println("Solenoid OFF");
+  } else {
+    digitalWrite(relay1Pin, HIGH);
+    Serial.println("Solenoid ON");
+  }
+}
+
+void onLEDInBuiltChange() {
+  if (lED_In_Built) {
+    digitalWrite(ledInBuilt, HIGH);
+    Serial.println("LED_In_Built ON");
+  } else {
+    digitalWrite(ledInBuilt, LOW);
+    Serial.println("LED_In_Built OFF");
+  }
+}
+
+void onMotorChange() {
+  if (motor) {
+    digitalWrite(relay2Pin, HIGH);
+    Serial.println("Motor ON");
+  } else {
+    digitalWrite(relay2Pin, LOW);
+    Serial.println("Motor OFF");
+  }
+}
+
+void onServoChange() {
+  myservo.write(servo);
+}
+```
+
+## How to Implement
+
+1. **Create Thing on Arduino IoT Cloud**:
+   - Go to the Arduino IoT Cloud.
+   - Create a new Thing and add the variables as specified.
+   
+2. **Setup Hardware**:
+   - Connect your components as described in the component section.
+
+3. **Upload Code**:
+   - Copy the provided code into your Arduino IDE.
+   - Ensure the correct board and port are selected.
+   - Upload the code to your ESP32 board.
+
+4. **Control via Dashboard**:
+   - Use the Arduino IoT Cloud dashboard to monitor and control your relays, LED, servo, and motor.
+
+### Monitoring and Control
+
+Once your setup is complete and the code is uploaded, you can use the Arduino IoT Cloud dashboard to:
+- Toggle the relay on/off.
+- Control the built-in LED.
+- Set the position of the servo motor.
+- Toggle the motor on/off.
+
+## Comparisons and Illustrations
+
+### Components Comparison
+
+| Component     | Description                                      | Pin Configuration |
+|---------------|--------------------------------------------------|-------------------|
+| Relay         | Controls high voltage devices                    | GPIO 5 and GPIO 4 |
+| Built-in LED  | On-board LED for status indication               | GPIO 2            |
+| Servo Motor   | Rotates to a specific position                   | GPIO 18           |
+| I2C LCD Display | Displays real-time status information          | I2C pins          |
+
+### System Diagram
+
+```mermaid
+graph TD;
+    A[ESP32] --> B[Relay Module];
+    A --> C[Built-in LED];
+    A --> D[Servo Motor];
+    A --> E[I2C LCD Display];
+    B -->|GPIO 5| F[Relay1];
+    B -->|GPIO 4| G[Relay2];
+    C -->|GPIO 2| H[LED];
+    D -->|GPIO 18| I[Servo];
+    E -->|I2C| J[LCD];
+```
+
+### Control Flow Chart
+
+```mermaid
+flowchart TD
+    Start --> Init[Initialization]
+    Init --> WiFi[Connect to WiFi]
+    WiFi --> Cloud[Connect to Cloud]
+    Cloud --> LCD[Update LCD Status]
+    LCD --> Loop[Main Loop]
+    Loop -->|Update| CheckCloud[Check Cloud Updates]
+    CheckCloud -->|Relay Change| RelayUpdate[Update Relay Status]
+    CheckCloud -->|LED Change| LEDUpdate[Update LED Status]
+    CheckCloud -->|Servo Change| ServoUpdate[Update Servo Position]
+    CheckCloud -->|Motor Change| MotorUpdate[Update Motor Status]
+    RelayUpdate --> Loop
+    LEDUpdate --> Loop
+    ServoUpdate --> Loop
+    MotorUpdate --> Loop
+```
+
+## Resources
+
+- [Arduino IoT Cloud](https://create.arduino.cc/iot)
+- [Arduino Cloud Documentation](https://www.arduino.cc/en/IoT/HomePage)
+
+For the full code and more details, visit the [GitHub repository](https://github.com/your-repo/arduino-iot-cloud-control).
